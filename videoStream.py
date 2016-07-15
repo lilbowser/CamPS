@@ -9,7 +9,7 @@ from USBCameraStream import USBCameraStream
 
 
 class VideoStream:
-    def __init__(self, src=0, usePiCamera=False, resolution=(320, 240),
+    def __init__(self, src=0, usePiCamera=False, useStaticImage=False, resolution=(320, 240),
                  framerate=32):
         # check to see if the picamera module should be used
         if usePiCamera:
@@ -23,6 +23,9 @@ class VideoStream:
             # sensor to warmup
             self.stream = PiVideoStream(resolution=resolution,
                                         framerate=framerate)
+        elif useStaticImage:
+            from StaticImageStream import StaticImageStream
+            self.stream = StaticImageStream(src=src)
 
         # otherwise, we are using OpenCV so initialize the webcam
         # stream

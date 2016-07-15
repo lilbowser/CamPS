@@ -21,6 +21,7 @@ class USBCameraStream:
         # initialize the variable used to indicate if the thread should
         # be stopped
         self.stopped = False
+        # self.error = False
 
     def start(self):
         # start the thread to read frames from the video stream
