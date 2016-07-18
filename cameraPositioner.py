@@ -37,13 +37,12 @@ class Camera:
     # hueUpper = (64, 255, 255)
 
     # Source Type Enum
-    class Source_Type:
+    class SourceType:
         USB = "usb"
         STATIC = "static"
         IP = "ip"
 
     # ---   ---   ---   ---
-
 
     def __init__(self, camera_name, camera_source, source_type, size=None, fps=None):
         """
@@ -56,7 +55,7 @@ class Camera:
         :type camera_source: int or string
 
         :param source_type: The type of source the video is coming from. (usb, ip, static)
-        :type source_type: Source_Type
+        :type source_type: SourceType
 
         :param size: Overrides the default resolution of the camera. (width, height)
         :type size: (int, int)
@@ -66,12 +65,12 @@ class Camera:
         self.camera_name = camera_name
 
         # open the correct video stream based on the source type
-        if source_type == self.Source_Type.USB:
+        if source_type == self.SourceType.USB:
             self.video_stream = VideoStream(src=camera_source).start()
-        elif source_type == self.Source_Type.IP:
+        elif source_type == self.SourceType.IP:
             # self.video_stream = VideoStream(src=camera_source, useIPCamera=True).start()
             raise NotImplementedError("IP sources are not yet supported.")
-        elif source_type == self.Source_Type.STATIC:
+        elif source_type == self.SourceType.STATIC:
             self.video_stream = VideoStream(src=camera_source, useStaticImage=True).start()
         else:
             raise ValueError(source_type + " is not a valid source_type argument.")
