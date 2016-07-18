@@ -8,19 +8,36 @@ If we get freezing when network cameras drop out: https://github.com/opencv/open
 
 http://www.pyimagesearch.com/2015/12/21/increasing-webcam-fps-with-python-and-opencv/
 """
-import numpy
+import numpy as np
 import cv2
+from videoStream import VideoStream
+import perspectiveTransformationTest
+import logging
+import imutils
+
+
 
 
 class Camera:
     """Defines a single camerea"""
 
-    def __init__(self, camera_name, usb_camera_number=None, http_camera_url=None, size=None, fps=None):
+    logger = logging.getLogger("Camera")
+
+    # Upper and Lower boundaries for color detection
+    # greenLower = (29, 86, 6)
+    # greenUpper = (64, 255, 255)
+    hueLower = (170, 70, 50)
+    hueUpper = (180, 255, 255)
+    hueLower2 = (0, 70, 50)
+    hueUpper2 = (10, 255, 255)
+
+    def __init__(self, camera_name, usb_camera_number=None, http_camera_url=None, static_image=None, size=None, fps=None):
         """
         Constructor for Camera
 
         :param camera_name: Used for display purposes only
         :type camera_name: string
+
         :param usb_camera_number: usb camera number to open. usb_camera_number OR http_camera_url must be defined.
         :type usb_camera_number: int
         :param http_camera_url: URL to web camera. usb_camera_number OR http_camera_url must be defined.
@@ -31,48 +48,150 @@ class Camera:
         :type fps: int
         """
         self.camera_name = camera_name
-        self.frame = None
 
         if usb_camera_number is not None:
-            # self.cap = cv2.VideoCapture(usb_camera_number)
-            self.cap = cv2.VideoCapture()
-            self.cap.open(usb_camera_number)
-        elif http_camera_url is not None:  # TODO: Combine USB and HTTP initialisation
-            self.cap = cv2.VideoCapture()
-            self.cap.open(http_camera_url)
+            self.video_stream = VideoStream(src=usb_camera_number).start()
+        # elif http_camera_url is not None:  # TODO: Combine USB and HTTP initialisation
+        #     self.cap = cv2.VideoCapture()
+        #     self.cap.open(http_camera_url)
+        elif static_image is not None:
+            self.video_stream = VideoStream(src=static_image, useStaticImage=True).start()
 
-        if size is not None:
-            (override_width, override_height) = size
-            retval = self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, override_width)
-            retval = self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, override_height)
+        self.frame = self.video_stream.read()
+        self.warped_frame = None
+        #
+        # if size is not None:
+        #     (override_width, override_height) = size
+        #     retval = self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, override_width)
+        #     retval = self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, override_height)
+        #
+        # if fps is not None:
+        #     retval = self.cap.set(cv2.CAP_PROP_FPS, fps)
+        #
 
-        if fps is not None:
-            retval = self.cap.set(cv2.CAP_PROP_FPS, fps)
+        # self.width = self.stream().get(cv2.CAP_PROP_FRAME_WIDTH)
+        # self.height = self.stream().get(cv2.CAP_PROP_FRAME_HEIGHT)
 
-        self.width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        self.height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.reference_rectangle = None
+        self.calibration_table = None
 
-    def retrieve(self):
+
+    # def retrieve(self):
+    #     """
+    #     Decodes the last frame that was grabbed.
+    #     """
+    #     retval, frame = self.cap.retrieve()
+    #     if retval is False:
+    #         raise OpenCVError(message="Failed to decode frame from camera " + self.camera_name)
+    #     else:
+    #         self.frame = frame
+    #
+    # def grab(self):
+    #     """
+    #     Grabs the next frame from the camera but does not decode it.
+    #     """
+    #     if self.cap.isOpened():
+    #         if self.cap.grab() is False:
+    #             raise OpenCVError(message="Failed to grab frame from camera " + self.camera_name)
+    #     else:
+    #         raise OpenCVError(message="Failed to grab frame from camera " + self.camera_name +
+    #                                   ". Camera feed is not open!")
+
+    def add_calibration_point(self, camera_point, world_point):
+        raise NotImplementedError
+
+    def current_location(self):
+        raise NotImplementedError
+
+    def locate_tracker(self, debug):
         """
-        Decodes the last frame that was grabbed.
+        Returns the (x, y) position of the IR tracker in the camera reference plane.
+        http://www.pyimagesearch.com/2015/09/14/ball-tracking-with-opencv/
+
+        :return: The (x, y) position of the IR tracker in the camera reference plane.
+        :rtype: (int, int)
         """
-        retval, frame = self.cap.retrieve()
-        if retval is False:
-            raise OpenCVError(message="Failed to decode frame from camera " + self.camera_name)
+
+        # tmp_image =
+        # tmp_image = cv2.GaussianBlur(self.frame, (11, 11), 0)  # Experiment with this
+
+        hsv = cv2.cvtColor(self.frame, cv2.COLOR_BGR2HSV)  # Convert to HSV Color Space. This is temporary for testing using colored objects)
+
+        mask = cv2.inRange(hsv, self.hueLower, self.hueUpper)
+
+        try:
+            mask = cv2.inRange(hsv, self.hueLower2, self.hueUpper2) + mask
+        except AttributeError:
+            pass
+
+        mask = cv2.erode(mask, None, iterations=2)
+        mask = cv2.dilate(mask, None, iterations=2)
+
+        if debug:
+            tmpMask = imutils.resize(mask, width=1000, height=1000)
+            cv2.imshow("mask", tmpMask)
+
+
+        # find contours in the mask and initialize the current (x, y) center of the object
+        cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
+        center = None
+
+        # only proceed if at least one contour was found
+        if len(cnts) > 0:
+            # find the largest contour in the mask, then use
+            # it to compute the minimum enclosing circle and
+            # centroid
+            c = max(cnts, key=cv2.contourArea)
+
+            ((x, y), radius) = cv2.minEnclosingCircle(c)
+            M = cv2.moments(c)
+            center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+
+            # only proceed if the radius meets a minimum size
+            # if radius > 10:
+            #     # draw the circle and centroid on the frame,
+            #     # then update the list of tracked points
+            #     cv2.circle(frame, (int(x), int(y)), int(radius),
+            #                (0, 255, 255), 2)
+            #     cv2.circle(frame, center, 5, (0, 0, 255), -1)
+            if debug:
+                cv2.drawContours(self.frame, c, -1, (0, 255, 0), 20)
+            return center, radius
+        # update the points queue
+        cv2.imshow("mask", imutils.resize(mask, width=1000, height=1000))
+        cv2.imshow("frame", imutils.resize(self.frame, width=1000, height=1000))
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        raise OpenCVError("Could not find tracker!")
+
+        # return (1, 1), 1
+
+    def set_reference_rectangle(self, reference_rectangle):
+        """
+
+        :param reference_rectangle: Four points used to correct for perspective shift. [(x, y), (x, y), (x, y), (x, y)]
+        :type reference_rectangle: [(int, int), (int, int), (int, int), (int, int)]
+        """
+        self.reference_rectangle = np.array(reference_rectangle)
+
+    def update(self):
+        """
+        Updates the frame buffer
+        """
+        self.frame = self.video_stream.read()
+
+    def get_new_frame(self):
+        self.update()
+        return self.frame
+
+    def transform(self):
+        if self.reference_rectangle is not None:
+            self.warped_frame, junk = perspectiveTransformationTest.four_point_transform(self.frame, self.reference_rectangle)
         else:
-            self.frame = frame
+            logging.warning("Can not transform frame until reference_rectangle has been set!")
 
-    def grab(self):
-        """
-        Grabs the next frame from the camera but does not decode it.
-        """
-        if self.cap.isOpened():
-            if self.cap.grab() is False:
-                raise OpenCVError(message="Failed to grab frame from camera " + self.camera_name)
-        else:
-            raise OpenCVError(message="Failed to grab frame from camera " + self.camera_name +
-                                      ". Camera feed is not open!")
+    def stop(self):
+        self.video_stream.stop()
 
     def close(self):
         """
@@ -80,8 +199,11 @@ class Camera:
         :return:
         :rtype:
         """
+        self.video_stream.stop()
+        self.video_stream.close()
 
-        self.cap.release()
+    def stream(self):
+        return self.video_stream.stream.stream
 
 
 class OpenCVError(Exception):
