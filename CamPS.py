@@ -1,9 +1,18 @@
+"""
+MIT License
 
+Copyright (c) 2016 Joshua Goldfarb
+
+"""
 import cv2
+import math
+
+from matplotlib._path import points_in_path
+
 platformSize = (300, 400, 200)  # width, length, and height of motion platform
 markerPosition = (0, 0, 101)  # X, Y, Z position of marker from center of motion platform
 
-imageSize = (640, 640)
+imageSize = (630, 630)
 
 coordinateMap = [[None for x in range(imageSize[0])] for y in range(imageSize[1])]
 
@@ -13,14 +22,13 @@ coordinateMap[258][559] = [1250, 1250]
 coordinateMap[602][323] = [1250, 250]
 
 
-class DeskewMap:
+class InterpolationMap:
     """
     Data structure storing map to deskew image to match real life
     """
     def __init__(self):
-        self.x_list = LinkedList()
-        self.y_list = LinkedList()
-        self.list = LinkedList()#[]
+
+        self.list = LinkedList()
 
     def add_point(self, camera_x, camera_y, world_x, world_y):
         """
@@ -36,16 +44,58 @@ class DeskewMap:
         :return:
         :rtype:
         """
-        # self.x_list.append(DeskewData(camera_x, world_x))
-        # self.y_list.append(DeskewData(camera_y, world_y))
+        self.list.append(InterpolationData(camera_x, camera_y, world_x, world_y))
 
-        self.x_list.append(DeskewData(camera_x, camera_y, world_x, world_y))
-
-    def get_world_coord_from(self, camera_x, camera_Y):
+    def get_world_coord_from(self, camera_x, camera_y):
         raise NotImplementedError
 
     def get_adjacent_data(self, camera_position):
+        raise NotImplementedError
 
+    def get_closest_points(self, point, n=1):
+        return self.list.closest_camera_points(point, n)
+
+    def get_point_pairs(self, points, target):
+        """
+
+        :param points:
+        :type points: list[list[float|Node]]
+        :param target:
+        :type target: Point
+        :return:
+        :rtype:
+        """
+
+        default_entry = (999999999999, None, None)
+        closest_found = []
+        for i in range(len(points)):
+            closest_found.append(default_entry)
+
+        for i, entry in enumerate(points):
+            point = entry[1].data.camera_position()
+            for j, entry2 in enumerate(points):
+                if i != j:
+                    point2 = entry2[1].data.camera_position()
+
+                    # Find the distance from the point to the line
+                    denom = math.sqrt((point2.x - point.x) ** 2 + (point2.y - point.y) ** 2)
+                    numer = abs(((point2.y - point.y) * target.x) - ((point2.x - point.x) * target.y) + (point2.x * point.y) - (point2.y * point.x))
+                    line_distance = numer / denom
+
+                    if line_distance < closest_found[0][0]:
+                        duplicate = False
+                        for data in closest_found:
+                            if data[0] == line_distance:
+                                duplicate = True
+
+                        if not duplicate:
+                            closest_found[0] = (line_distance, point, point2)
+                            closest_found = sorted(closest_found, key=lambda tup: tup[0], reverse=True) #sorted(closest_found, reverse=True)
+
+        while default_entry in closest_found:
+            closest_found.remove(default_entry)
+
+        return closest_found
 
 
 class LinkedList(object):
@@ -62,7 +112,7 @@ class LinkedList(object):
         """
 
         :param data: Data entry containing Deskew Information
-        :type data: DeskewData
+        :type data: InterpolationData
         :return:
         :rtype:
         """
@@ -94,13 +144,43 @@ class LinkedList(object):
         current = self.head
         found = False
         while current and found is False:
-            if current.get_data().camera == data:
+            if current.get_data().camera_position() == camera_position:
                 found = True
             else:
                 current = current.get_next()
         if current is None:
             raise ValueError("Data not in list")
         return current
+
+    def closest_camera_points(self, search_point, n=1):
+        """
+
+        :param search_point:
+        :type search_point: Point
+        :return:
+        :rtype:
+        """
+
+        # TODO: This probably needs to be optimised
+        current = self.head
+
+        closest_found = []
+        for i in range(n):
+            closest_found.append((999999999999, None))
+
+        if current is None:
+            raise ValueError("Data not in list")
+
+        while current:  # and number_found < n:
+            distance = current.get_data().distance_to_camera_point(search_point)
+
+            if distance < closest_found[0][0]:
+                closest_found[0] = (distance, current)
+                closest_found = sorted(closest_found, key=lambda tup: tup[0], reverse=True) # sorted(closest_found, reverse=True)
+
+            current = current.get_next()
+
+        return closest_found
 
     def delete(self, data):
         current = self.head
@@ -126,7 +206,7 @@ class Node:
         """
 
         :param data: Data entry containing Deskew Information
-        :type data: DeskewData
+        :type data: InterpolationData
         :param next_node:
         :type next_node:
         """
@@ -136,8 +216,8 @@ class Node:
     def get_data(self):
         """
 
-        :return: DeskewData
-        :rtype: DeskewData
+        :return: InterpolationData
+        :rtype: InterpolationData
         """
         return self.data
 
@@ -147,7 +227,7 @@ class Node:
     def set_next(self, new_next):
         self.next_node = new_next
 
-class DeskewData:
+class InterpolationData:
     # Create better name
 
     def __init__(self, camera_x, camera_y, world_x, world_y):
@@ -159,7 +239,23 @@ class DeskewData:
     def difference(self):
         return Point(self.camera_x - self.world_x, self.camera_y - self.world_y)
 
-class DeskewDataSingle:
+    def camera_position(self):
+        return Point(self.camera_x, self.camera_y)
+
+    def world_position(self):
+        return Point(self.world_x, self.world_y)
+
+    def distance_to_camera_point(self, point):
+        """
+        Returns the distance from given coordinates to the stored camera point
+        :param point: The point we want distance from.
+        :type point: Point
+        :return:
+        :rtype: double
+        """
+        return math.sqrt((point.x - self.camera_x)**2 + (point.y - self.camera_y)**2)
+
+class InterpolationDataSingle:
     # Create better name
 
     # def __init__(self, primary_x, primary_y, sub_x, sub_y):
