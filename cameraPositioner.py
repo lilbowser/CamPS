@@ -41,6 +41,7 @@ class Camera:
         USB = "usb"
         STATIC = "static"
         IP = "ip"
+        PiCamera = "picamera"
 
     # ---   ---   ---   ---
 
@@ -67,11 +68,17 @@ class Camera:
         # open the correct video stream based on the source type
         if source_type == self.SourceType.USB:
             self.video_stream = VideoStream(src=camera_source).start()
+
         elif source_type == self.SourceType.IP:
             # self.video_stream = VideoStream(src=camera_source, useIPCamera=True).start()
             raise NotImplementedError("IP sources are not yet supported.")
+
+        elif source_type == self.SourceType.PiCamera:
+            self.video_stream = VideoStream(src=camera_source, usePiCamera=True).start()
+
         elif source_type == self.SourceType.STATIC:
             self.video_stream = VideoStream(src=camera_source, useStaticImage=True).start()
+
         else:
             raise ValueError(source_type + " is not a valid source_type argument.")
 
