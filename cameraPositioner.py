@@ -21,27 +21,43 @@ import imutils
 class Camera:
     """Defines a single camerea"""
 
+    # --- Class Variables ---
     logger = logging.getLogger("Camera")
 
     # Upper and Lower boundaries for color detection
-    # greenLower = (29, 86, 6)
-    # greenUpper = (64, 255, 255)
+
+    # Hue range for red
     hueLower = (170, 70, 50)
     hueUpper = (180, 255, 255)
     hueLower2 = (0, 70, 50)
     hueUpper2 = (10, 255, 255)
 
-    def __init__(self, camera_name, usb_camera_number=None, http_camera_url=None, static_image=None, size=None, fps=None):
+    # Hue range for green
+    # hueLower = (29, 86, 6)
+    # hueUpper = (64, 255, 255)
+
+    # Source Type Enum
+    class Source_Type:
+        USB = "usb"
+        STATIC = "static"
+        IP = "ip"
+
+    # ---   ---   ---   ---
+
+
+    def __init__(self, camera_name, camera_source, source_type, size=None, fps=None):
         """
         Constructor for Camera
 
         :param camera_name: Used for display purposes only
         :type camera_name: string
 
-        :param usb_camera_number: usb camera number to open. usb_camera_number OR http_camera_url must be defined.
-        :type usb_camera_number: int
-        :param http_camera_url: URL to web camera. usb_camera_number OR http_camera_url must be defined.
-        :type http_camera_url: string
+        :param camera_source: The video source
+        :type camera_source: int or string
+
+        :param source_type: The type of source the video is coming from. (usb, ip, static)
+        :type source_type: Source_Type
+
         :param size: Overrides the default resolution of the camera. (width, height)
         :type size: (int, int)
         :param fps: Overrides the default FPS of the camera.
@@ -49,14 +65,18 @@ class Camera:
         """
         self.camera_name = camera_name
 
-        if usb_camera_number is not None:
-            self.video_stream = VideoStream(src=usb_camera_number).start()
-        # elif http_camera_url is not None:  # TODO: Combine USB and HTTP initialisation
-        #     self.cap = cv2.VideoCapture()
-        #     self.cap.open(http_camera_url)
-        elif static_image is not None:
-            self.video_stream = VideoStream(src=static_image, useStaticImage=True).start()
+        # open the correct video stream based on the source type
+        if source_type == self.Source_Type.USB:
+            self.video_stream = VideoStream(src=camera_source).start()
+        elif source_type == self.Source_Type.IP:
+            # self.video_stream = VideoStream(src=camera_source, useIPCamera=True).start()
+            raise NotImplementedError("IP sources are not yet supported.")
+        elif source_type == self.Source_Type.STATIC:
+            self.video_stream = VideoStream(src=camera_source, useStaticImage=True).start()
+        else:
+            raise ValueError(source_type + " is not a valid source_type argument.")
 
+        # Load first frame into the frame buffer to initialize.
         self.frame = self.video_stream.read()
         self.warped_frame = None
         #
@@ -74,28 +94,6 @@ class Camera:
 
         self.reference_rectangle = None
         self.calibration_table = None
-
-
-    # def retrieve(self):
-    #     """
-    #     Decodes the last frame that was grabbed.
-    #     """
-    #     retval, frame = self.cap.retrieve()
-    #     if retval is False:
-    #         raise OpenCVError(message="Failed to decode frame from camera " + self.camera_name)
-    #     else:
-    #         self.frame = frame
-    #
-    # def grab(self):
-    #     """
-    #     Grabs the next frame from the camera but does not decode it.
-    #     """
-    #     if self.cap.isOpened():
-    #         if self.cap.grab() is False:
-    #             raise OpenCVError(message="Failed to grab frame from camera " + self.camera_name)
-    #     else:
-    #         raise OpenCVError(message="Failed to grab frame from camera " + self.camera_name +
-    #                                   ". Camera feed is not open!")
 
     def add_calibration_point(self, camera_point, world_point):
         raise NotImplementedError
